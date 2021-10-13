@@ -10,10 +10,9 @@ import (
 )
 
 type basicAuthMiddleware struct {
-	Realm           string                       // Just a Realm
-	PasswordEncoder func([]byte) ([]byte, error) // password encoder is what do we code the password in, default clear text !!!
-	Verifier        func(string, string) bool    // Verifier func is the custom function to verify incoming users, here we can setup LDAP / Password file or whatever, read .htaccess
-	Next            http.HandlerFunc             // next is the handlerfunc we want to protect
+	Realm    string                    // Just a Realm
+	Verifier func(string, string) bool // Verifier func is the custom function to verify incoming users, here we can setup LDAP / Password file or whatever, read .htaccess
+	Next     http.HandlerFunc          // next is the handlerfunc we want to protect
 }
 
 func NewBasicAuth(realm string, verifier func(string, string) bool, next http.HandlerFunc) *basicAuthMiddleware {
