@@ -25,7 +25,13 @@ func (t *todo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "POST":
 		t.postNewTodo(user, path)(w, r)
 	case "GET":
-		t.getAllTodo(user)(w, r)
+		if len(path) == 1 {
+			t.getAllTodo(user)(w, r)
+		} else {
+			value := path[1:]
+			t.getSpecificTodo(user, value)(w, r)
+		}
+
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
@@ -88,6 +94,20 @@ func (t *todo) getAllTodo(user string) http.HandlerFunc {
 func (t *todo) getSpecificTodo(user, value string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
+		t.mu.RLock()
+		defer t.mu.RUnlock()
+		for _, val := range t.Items[user] {
+			if val.Value == value {
+				if err := json.NewEncoder(w).Encode(val); err != nil {
+					log.Println("failed to encode specific todo item")
+					return
+				}
+				return // stop here
+			}
+		}
+		// return not found if we didnt find the value in our item list
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+
 	}
 }
 
@@ -101,9 +121,6 @@ func basicAuthVerifier(username, password string) bool {
 	return ok && pw == password
 }
 
-func basicAuthPasswordEncoder(s1 []byte) ([]byte, error) {
-	return nil, nil
-}
 func main() {
 
 	root := http.NewServeMux()

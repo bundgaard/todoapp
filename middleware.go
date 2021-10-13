@@ -12,7 +12,7 @@ import (
 type basicAuthMiddleware struct {
 	Realm    string                    // Just a Realm
 	Verifier func(string, string) bool // Verifier func is the custom function to verify incoming users, here we can setup LDAP / Password file or whatever, read .htaccess
-	Next     http.HandlerFunc          // next is the handlerfunc we want to protect
+	Next     http.Handler              // next is the handlerfunc we want to protect
 }
 
 func NewBasicAuth(realm string, verifier func(string, string) bool, next http.HandlerFunc) *basicAuthMiddleware {
@@ -44,6 +44,6 @@ func (bam *basicAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	bam.Next(w, r.WithContext(context.WithValue(r.Context(), principalKey, usernameAndPassword[0])))
+	bam.Next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, usernameAndPassword[0])))
 
 }
