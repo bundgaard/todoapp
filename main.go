@@ -1,90 +1,87 @@
 package main
 
 import (
-	"context"
-	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
-	"time"
+	"sync"
+	"todoapp/internal/requests"
 )
 
-type todoitem struct {
-	Value     string
-	CreatedAt time.Time
+type todo struct {
+	mu    sync.RWMutex
+	Items map[string][]todoitem
 }
 
-func NewTodoItem(value string) todoitem {
-	return todoitem{Value: value, CreatedAt: time.Now()}
-}
-
-type PrincipalContextType struct{}
-
-var (
-	principalKey = &PrincipalContextType{}
-	todos        = make(map[string][]todoitem)
-)
-
-type NewTodoRequest struct {
-	Value string `json:"value"`
-}
-
-func handleTodoStuff(w http.ResponseWriter, r *http.Request) {
+func (t *todo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	method := r.Method
-	principal := r.Context().Value(principalKey).(string)
-	log.Printf("%s logged in", principal)
+	path := r.URL.Path
+
+	user := principal(r)
+
+	info("%s %s %s\n", user, method, path)
 
 	switch method {
 	case "POST":
-		var ri NewTodoRequest
-		if err := json.NewDecoder(r.Body).Decode(&ri); err != nil {
-			log.Fatal(err)
-		}
-		todos[principal] = append(todos[principal], NewTodoItem(ri.Value))
+		t.postNewTodo(user, path)(w, r)
 	case "GET":
-		if err := json.NewEncoder(w).Encode(todos); err != nil {
-			log.Fatal(err)
-		}
+		t.getAllTodo(user)(w, r)
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+
 }
 
-func main() {
+func (t *todo) postNewTodo(user, path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var ri requests.NewTodoRequest
+		if err := json.NewDecoder(r.Body).Decode(&ri); err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
 
-	api := http.NewServeMux()
-	api.HandleFunc("/", handleTodoStuff)
+		t.mu.Lock()
+		t.Items[user] = append(t.Items[user], NewTodoItem(ri.Value))
+		t.mu.Unlock()
+
+	}
+}
+
+func (t *todo) getAllTodo(user string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		t.mu.RLock()
+		items, ok := t.Items[user]
+		if !ok {
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(items); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		t.mu.RUnlock()
+	}
+}
+
+func (t *todo) getSpecificTodo(user, value string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+	}
+}
+
+var (
+	principalKey = &PrincipalContextType{}
+)
+
+func main() {
 
 	root := http.NewServeMux()
 
 	root.Handle("/", http.FileServer(http.Dir("public")))
-	root.Handle("/todo/", http.StripPrefix("/todo", middlewareAuthBasic("Todo Realm", api)))
+	root.Handle("/todo/", http.StripPrefix("/todo", middlewareAuthBasic("Todo Realm", &todo{Items: make(map[string][]todoitem)})))
 
 	if err := http.ListenAndServe(":8080", root); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func middlewareAuthBasic(realm string, next http.Handler) http.HandlerFunc {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		authorizationHeader := r.Header.Get("authorization")
-		if authorizationHeader == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Header().Set("www-authenticate", "Basic Realm")
-			return
-		}
-
-		log.Println(authorizationHeader)
-		principal, err := base64.StdEncoding.DecodeString(authorizationHeader[len("Basic "):])
-		if err != nil {
-			log.Println(err)
-		}
-		foo := strings.Split(string(principal), ":")
-		// Skipping the user validation
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, foo[0])))
-
-	}
-
-	return fn
 }
