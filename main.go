@@ -32,6 +32,23 @@ func (t *todo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 }
 
+type PasswordEncoder interface {
+	Encode([]byte) ([]byte, error)
+}
+
+type NoOpPasswordEncoder struct{}
+
+func (n *NoOpPasswordEncoder) Encode(s1 []byte) ([]byte, error) {
+	return s1, nil
+}
+
+type BCryptPasswordEncoder struct {
+}
+
+func (b *BCryptPasswordEncoder) Encode(s1 string) ([]byte, error) {
+	// bcrypt.GenerateFromPassword()
+	return nil, nil
+}
 func (t *todo) postNewTodo(user, path string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var ri requests.NewTodoRequest
@@ -41,9 +58,11 @@ func (t *todo) postNewTodo(user, path string) http.HandlerFunc {
 		}
 
 		t.mu.Lock()
+		defer t.mu.Unlock()
 		t.Items[user] = append(t.Items[user], NewTodoItem(ri.Value))
-		t.mu.Unlock()
 
+		log.Println("Unlocked and sending back 201")
+		w.WriteHeader(http.StatusCreated)
 	}
 }
 
@@ -51,7 +70,9 @@ func (t *todo) getAllTodo(user string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		t.mu.RLock()
+		defer t.mu.RUnlock()
 		items, ok := t.Items[user]
+
 		if !ok {
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
@@ -60,7 +81,7 @@ func (t *todo) getAllTodo(user string) http.HandlerFunc {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
-		t.mu.RUnlock()
+
 	}
 }
 
@@ -71,16 +92,26 @@ func (t *todo) getSpecificTodo(user, value string) http.HandlerFunc {
 }
 
 var (
-	principalKey = &PrincipalContextType{}
+	principalKey   = &PrincipalContextType{}
+	basicAuthUsers = map[string]string{"user1": "test", "user2": "test"}
 )
 
+func basicAuthVerifier(username, password string) bool {
+	pw, ok := basicAuthUsers[username]
+	return ok && pw == password
+}
+
+func basicAuthPasswordEncoder(s1 []byte) ([]byte, error) {
+	return nil, nil
+}
 func main() {
 
 	root := http.NewServeMux()
 
 	root.Handle("/", http.FileServer(http.Dir("public")))
-	root.Handle("/todo/", http.StripPrefix("/todo", middlewareAuthBasic("Todo Realm", &todo{Items: make(map[string][]todoitem)})))
-
+	todoApi := &todo{Items: make(map[string][]todoitem)}
+	root.Handle("/todo/", http.StripPrefix("/todo", NewBasicAuth("Todo Realm", basicAuthVerifier, todoApi.ServeHTTP)))
+	log.Println("startin server on 8080")
 	if err := http.ListenAndServe(":8080", root); err != nil {
 		log.Fatal(err)
 	}

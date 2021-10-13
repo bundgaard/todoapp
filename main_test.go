@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,35 +32,46 @@ func basicAuthRequest(username, password string) func(method, url string, body i
 }
 func TestGetTodos(t *testing.T) {
 
-	server := httptest.NewServer(middlewareAuthBasic("Todo Realm", &todo{}))
+	todoApi := &todo{Items: make(map[string][]todoitem)}
+	basicAuthMiddleware1 := NewBasicAuth("Todo Test Realm", basicAuthVerifier, todoApi.ServeHTTP)
+
+	server := httptest.NewServer(basicAuthMiddleware1)
 	defer server.Close()
 
 	authRequest := basicAuthRequest("user1", "test")
 
 	resp, err := authRequest("GET", server.URL+"/", nil)
 	if err != nil {
-		t.Fail()
+		t.Error(err)
 	}
 
+	content, _ := ioutil.ReadAll(resp.Body)
+	t.Logf("%s", content)
+
 	if resp.StatusCode != http.StatusOK {
-		t.Fail()
+		t.Errorf("expected %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
 }
 
 func TestPostTodo(t *testing.T) {
-	server := httptest.NewServer(middlewareAuthBasic("Todo Realm", &todo{Items: make(map[string][]todoitem)}))
+	todoApi := &todo{Items: make(map[string][]todoitem)}
+	basicAuthMiddleware1 := NewBasicAuth("Todo Test Realm", basicAuthVerifier, todoApi.ServeHTTP)
+
+	server := httptest.NewServer(basicAuthMiddleware1)
 	defer server.Close()
 
 	authRequest := basicAuthRequest("user1", "test")
 	var body bytes.Buffer
-	json.NewEncoder(&body).Encode(requests.NewTodoRequest{Value: "Hello, WOrld"})
+	if err := json.NewEncoder(&body).Encode(requests.NewTodoRequest{Value: "Hello, WOrld"}); err != nil {
+		t.Error(err)
+	}
 	resp, err := authRequest("POST", server.URL+"/", &body)
 	if err != nil {
 		t.Error(err)
 	}
 
 	if resp.StatusCode != http.StatusCreated {
-		t.Fail()
+		t.Errorf("expected %d. got %d", http.StatusCreated, resp.StatusCode)
 	}
 }
